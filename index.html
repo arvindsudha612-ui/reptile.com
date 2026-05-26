@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tapered Body Skeletal Cursor Game</title>
+    <style>
+        /* Base Styling for Front Page */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: rgb(41, 246, 205); /* Your original design background */
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }
+
+        /* Front Page UI Container */
+        .ui-container {
+            text-align: center;
+            z-index: 10; /* Keeps UI above game canvas */
+            transition: opacity 0.5s ease;
+        }
+
+        h1 {
+            color: #000;
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+
+        p {
+            color: #000;
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+        }
+
+        /* Start Button Styling */
+        .start-btn {
+            padding: 12px 35px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: white;
+            background-color: #000;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            transition: transform 0.2s;
+        }
+
+        .start-btn:hover {
+            transform: scale(1.05);
+        }
+
+        /* Back Button Styling (Initially Hidden) */
+        .back-btn {
+            display: none;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: #000;
+            background-color: #ffffff;
+            border: 2px solid #ffffff;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 20; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+        .back-btn:hover {
+            background-color: transparent;
+            color: #ffffff;
+        }
+
+        /* Game Canvas (Initially Hidden) */
+        canvas {
+            display: none; 
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ui-container" id="welcomeScreen">
+        <h1>Welcome</h1>
+        <p>here amzing content</p>
+        <button class="start-btn" id="startBtn">start</button>
+    </div>
+
+    <button class="back-btn" id="backBtn">Back</button>
+
+    <canvas id="reptileCanvas"></canvas>
+
+    <script>
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const startBtn = document.getElementById('startBtn');
+        const backBtn = document.getElementById('backBtn');
+        const canvas = document.getElementById('reptileCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameStarted = false;
+        let animationFrameId = null;
+        const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+
+        // --- Start Button Click Handler ---
+        startBtn.addEventListener('click', () => {
+            welcomeScreen.style.display = 'none';
+            document.body.style.backgroundColor = '#05070f'; /* Dark background for game */
+            canvas.style.display = 'block';
+            backBtn.style.display = 'block';
+            gameStarted = true;
+            
+            // Set mouse initial position to screen center on click
+            mouse.x = window.innerWidth / 2;
+            mouse.y = window.innerHeight / 2;
+
+            // Initialize all spine positions to mouse center to avoid a jump
+            for (let i = 0; i < numSegments; i++) {
+                spine[i].x = mouse.x;
+                spine[i].y = mouse.y;
+            }
+            
+            resizeCanvas();
+            animate();
+        });
+
+        // --- Back Button Click Handler ---
+        backBtn.addEventListener('click', () => {
+            gameStarted = false;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            canvas.style.display = 'none';
+            backBtn.style.display = 'none';
+            document.body.style.backgroundColor = 'rgb(41, 246, 205)'; /* Original background */
+            welcomeScreen.style.display = 'block';
+        });
+
+        // --- REPTILE GAME LOGIC ---
+        function resizeCanvas() {
+            if (!gameStarted) return;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+
+        // --- SPINE AND BODY STRUCTURE ---
+        const numSegments = 60; // Increased length for a dramatic body form       
+        const segmentLength = 6; // Decreased distance for a tighter, heavy look     
+        const spine = [];
+
+        // Pre-initialize spine array structure
+        for (let i = 0; i < numSegments; i++) {
+            spine.push({ x: mouse.x, y: mouse.y, angle: 0 });
+        }
+
+        // --- LEGS CONFIGURATION (Dynamic Placement based on Taper) ---
+        const legConfigs = [];
+        const bodyIdxRange = numSegments * 0.4; // Define a range for the heavy torso part
+        const stepPerLeg = Math.ceil(bodyIdxRange / 10); // Generate 10 pairs along that range
+
+        for (let i = 0; i < 10; i++) {
+            const bodyIdx = Math.round((numSegments * 0.15) + (i * stepPerLeg)); 
+            if (bodyIdx < numSegments - 1) { // Ensure placement is within bounds
+                legConfigs.push({ bodyIndex: bodyIdx, side: -1, pairIndex: i }); // Left Leg
+                legConfigs.push({ bodyIndex: bodyIdx, side: 1,  pairIndex: i });  // Right Leg
+            }
+        }
+
+        class Leg {
+            constructor(bodyIndex, side, pairIndex) {
+                this.bodyIndex = bodyIndex; 
+                this.side = side;       // -1 = Left, 1 = Right
+                this.pairIndex = pairIndex;
+                
+                // Initial target points near body
+                this.footX = spine[bodyIndex].x;
+                this.footY = spine[bodyIndex].y;
+                this.targetX = this.footX;
+                this.targetY = this.footY;
+                
+                this.stepProgress = 1; 
+                this.stepSpeed = 0.35;  // Responsiveness of the walking animation
+            }
+
+            update(time) {
+                const baseSegment = spine[this.bodyIndex];
+                
+                // Shoulder joint shifted slightly towards tail to help with tapering look
+                const jointAngle = baseSegment.angle + (Math.PI / 2 * this.side) + (Math.PI / 10);
+                const jointX = baseSegment.x + Math.cos(jointAngle) * 6; // Joint position near spine
+                const jointY = baseSegment.y + Math.sin(jointAngle) * 6;
+
+                // Adjust foot distance based on tapering - longer legs where body is wider
+                const legTaperFactor = 1 - (this.bodyIndex / numSegments); // Wider near chest, smaller at tail end
+                const footOffset = Math.max(12, 28 * legTaperFactor); // Minimum foot spread of 12
+
+                // Foot target coordinates shifted towards the tail side for gait
+                const footAngle = baseSegment.angle + (Math.PI / 2.2 * this.side) + (Math.PI / 5);
+                const idealFootX = jointX + Math.cos(footAngle) * footOffset;
+                const idealFootY = jointY + Math.sin(footAngle) * footOffset;
+
+                const dx = idealFootX - this.footX;
+                const dy = idealFootY - this.footY;
+                const distFromIdeal = Math.sqrt(dx * dx + dy * dy);
+
+                // Fluid crawling pattern across pairs - offset based on legWave pattern
+                const legWaveOffset = (this.pairIndex * 0.5) + (this.side === 1 ? Math.PI : 0);
+                const canStep = Math.sin(time * 0.02 + legWaveOffset) > 0;
+
+                // Condition for initiating a new step
+                if (distFromIdeal > 15 && this.stepProgress >= 1 && canStep) {
+                    this.targetX = idealFootX + Math.cos(baseSegment.angle) * 7; // Reach forward slightly
+                    this.targetY = idealFootY + Math.sin(baseSegment.angle) * 7;
+                    this.stepProgress = 0; // Reset progress
+                }
+
+                // If currently taking a step
+                if (this.stepProgress < 1) {
+                    this.stepProgress += this.stepSpeed;
+                    if (this.stepProgress > 1) this.stepProgress = 1;
+
+                    // Interpolate foot position towards the target
+                    this.footX += (this.targetX - this.footX) * this.stepProgress;
+                    this.footY += (this.targetY - this.footY) * this.stepProgress;
+                }
+
+                // Draw the bone structure with the joint position
+                this.drawLeg(jointX, jointY);
+            }
+
+            drawLeg(jointX, jointY) {
+                const dx = this.footX - jointX;
+                const dy = this.footY - jointY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                // Adjust limb lengths slightly with tapering factors for heavy legs
+                const taperFactor = Math.max(0.6, 1 - (this.bodyIndex / numSegments));
+                const upperArmLen = Math.max(6, 13 * taperFactor); 
+                const lowerArmLen = Math.max(6, 13 * taperFactor);
+
+                // Inverse Kinematics calculation with a backward bend bias
+                let bendAngle = Math.atan2(dy, dx) - (Math.PI / 3 * this.side);
+                if (dist < upperArmLen + lowerArmLen) {
+                    bendAngle = Math.atan2(dy, dx) - Math.acos((dist*dist + upperArmLen*upperArmLen - lowerArmLen*lowerArmLen) / (2 * dist * upperArmLen)) * this.side;
+                }
+
+                const kneeX = jointX + Math.cos(bendAngle) * upperArmLen;
+                const kneeY = jointY + Math.sin(bendAngle) * upperArmLen;
+
+                // Render bone structure - thicker for legs than spine wire
+                ctx.beginPath();
+                ctx.moveTo(jointX, jointY);
+                ctx.lineTo(kneeX, kneeY);
+                ctx.lineTo(this.footX, this.footY);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.lineWidth = Math.max(1, 1.8 * taperFactor); // Leg thickness tapers too
+                ctx.stroke();
+
+                // Small foot anchor dot
+                ctx.beginPath();
+                ctx.arc(this.footX, this.footY, 1.8, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+            }
+        }
+
+        const legs = legConfigs.map(cfg => new Leg(cfg.bodyIndex, cfg.side, cfg.pairIndex));
+
+        // --- MAIN ANIMATION LOOP ---
+        let frameCount = 0;
+        function animate() {
+            if (!gameStarted) return; // Prevent loop execution before start is clicked
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            frameCount++;
+
+            // 1. Update Head Point (smooth mouse tracking)
+            const head = spine[0];
+            head.x += (mouse.x - head.x) * 0.12;
+            head.y += (mouse.y - head.y) * 0.12;
+
+            // 2. Update Spine Segments - Each follows the one before it
+            for (let i = 1; i < numSegments; i++) {
+                const prev = spine[i - 1];
+                const curr = spine[i];
+
+                const dx = prev.x - curr.x;
+                const dy = prev.y - curr.y;
+                curr.angle = Math.atan2(dy, dx);
+
+                const targetX = prev.x - Math.cos(curr.angle) * segmentLength;
+                const targetY = prev.y - Math.sin(curr.angle) * segmentLength;
+
+                curr.x += (targetX - curr.x) * 0.65;
+                curr.y += (targetY - curr.y) * 0.65;
+            }
+
+            // 3. Render Legs Underneath the Tapered Body
+            legs.forEach(leg => leg.update(frameCount * 10));
+
+            // 4. Center Spine Wire (thin)
+            ctx.beginPath();
+            ctx.moveTo(spine[0].x, spine[0].y);
+            for (let i = 1; i < numSegments; i++) {
+                ctx.lineTo(spine[i].x, spine[i].y);
+            }
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // 5. Render Backward Tapered Body Structure (The massive rib-cage area)
+            // Starts narrow at neck (i=3), gets heavy around the heart (i=numSegments * 0.35)
+            // and tapers narrow to the tail end (numSegments * 0.8)
+            for (let i = 3; i < numSegments * 0.85; i++) {
+                const seg = spine[i];
+                
+                // --- Complex Tapering Calculation for a 'Heavy Torso' effect ---
+                let peakTorsoIdx = Math.floor(numSegments * 0.35); // Max width point (Chest area)
+                let ribLength = 0;
+
+                if (i <= peakTorsoIdx) {
+                    // Gradual expansion from head to heavy chest
+                    const neckFactor = (i - 3) / (peakTorsoIdx - 3);
+                    ribLength = 6 + (28 * neckFactor); // Maximum chest half-width of 28
+                } else {
+                    // Slow, heavy tapering from chest down to tail end
+                    const torsoTaperRange = (numSegments * 0.85) - peakTorsoIdx;
+                    const taperFactor = 1 - ((i - peakTorsoIdx) / torsoTaperRange);
+                    ribLength = 6 + (28 * taperFactor); // Heavy base width, slowly reducing
+                }
+                ribLength = Math.max(3, ribLength); // Don't let it disappear completely too early
+
+                // --- Rib Swept-Back Angles calculation targeting tail orientation ---
+                const leftCurveAngle = seg.angle + Math.PI/2 + (Math.PI / 4.8);  
+                const rightCurveAngle = seg.angle - Math.PI/2 - (Math.PI / 4.8);
+
+                const lx = seg.x + Math.cos(leftCurveAngle) * ribLength;
+                const ly = seg.y + Math.sin(leftCurveAngle) * ribLength;
+                
+                const rx = seg.x + Math.cos(rightCurveAngle) * ribLength;
+                const ry = seg.y + Math.sin(rightCurveAngle) * ribLength;
+
+                // Render bone structure - varying thickness based on position and size
+                ctx.beginPath();
+                ctx.moveTo(lx, ly);
+                ctx.lineTo(seg.x, seg.y);
+                ctx.lineTo(rx, ry);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+                ctx.lineWidth = Math.max(1.1, 1.8 * (ribLength / 28)); // Heavier ribs where body is wider
+                ctx.stroke();
+            }
+
+            // 6. Draw Small Head Node
+            ctx.beginPath();
+            ctx.arc(spine[0].x, spine[0].y, 3.5, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+
+            // Request next frame to keep animation running
+            animationFrameId = requestAnimationFrame(animate);
+        }
+    </script>
+</body>
+</html>
